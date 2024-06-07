@@ -78,6 +78,10 @@ void GenCISolver::set_spin_adapt_full_preconditioner(bool value) {
     spin_adapt_full_preconditioner_ = value;
 }
 
+void GenCISolver::set_core_bits(std::vector<int> value) { core_bits_ = value; }
+
+void GenCISolver::set_core_print(bool value) { core_print_ = value; }
+
 void GenCISolver::set_test_rdms(bool value) { test_rdms_ = value; }
 
 void GenCISolver::set_print_no(bool value) { print_no_ = value; }
@@ -159,6 +163,11 @@ void GenCISolver::set_options(std::shared_ptr<ForteOptions> options) {
     set_test_rdms(options->get_bool("FCI_TEST_RDMS"));
 
     set_root(options->get_int("ROOT"));
+    set_core_bits(options->get_int_list("CORE_BITS"));
+    set_core_print(options->get_bool("CORE_PRINT"));
+    print_ham_ = options->get_bool("PRINT_H");
+    print_ham_od_ = options->get_bool("PRINT_H_OD");
+    coup_H_thrs_ = options->get_double("COUP_H_THRS");
 
     set_guess_per_root(options->get_int("DL_GUESS_PER_ROOT"));
     set_ndets_per_guess_state(options->get_int("DL_DETS_PER_GUESS"));

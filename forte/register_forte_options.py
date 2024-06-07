@@ -561,6 +561,15 @@ def register_aci_options(options):
     options.add_str("DIAG_ALGORITHM", "SPARSE", ["DYNAMIC", "FULL", "SPARSE"], "The diagonalization method")
 
     options.add_int_list("CORE_GUESS", "Add core determinants as initial guess")
+    options.add_int_list("CORE_BITS","select core bits for core_guess")
+
+    options.add_bool("CORE_PRINT", False,"print core determinants used as initial guess for DL")
+
+    options.add_bool("PRINT_H", False,"print hamiltonian")
+
+    options.add_bool("PRINT_H_OD", False,"print hamiltonian of diag couplings with lowest core_ex root")
+
+    options.add_double("COUP_H_THRS", 1.0,"print maximing hamiltonian coupling with first core")
 
     options.add_bool("FORCE_DIAG_METHOD", False, "Force the diagonalization procedure?")
 

@@ -86,6 +86,10 @@ class GenCISolver : public ActiveSpaceMethod {
     /// Set the number of determinants per root to use to form the initial guess
     void set_ndets_per_guess_state(size_t value);
 
+    void set_core_bits(std::vector<int> value);
+    
+    void set_core_print(bool value);
+
     /// Set the maximum number of DL iterations
     void set_maxiter_davidson(int value);
 
@@ -164,6 +168,17 @@ class GenCISolver : public ActiveSpaceMethod {
     size_t na_;
     /// The number of beta electrons
     size_t nb_;
+
+    std::vector<int> core_bits_;
+
+    bool core_print_;
+
+    bool print_ham_ = false;
+
+    bool print_ham_od_;
+
+    double coup_H_thrs_ = 1.0;
+
     /// The number of guess vectors for each root
     size_t guess_per_root_ = 2;
     /// The number of collapse vectors for each root.

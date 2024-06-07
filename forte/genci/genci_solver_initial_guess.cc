@@ -35,7 +35,18 @@
 #include "genci_string_lists.h"
 #include "helpers/printing.h"
 #include "helpers/string_algorithms.h"
+#include "helpers/determinant_helpers.h"
 #include "genci_string_address.h"
+#include <cmath>
+#include "helpers/timer.h"
+
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <string>
+#include <filesystem>
+#include <thread>
+#include <future>
 
 #include "sparse_ci/sparse_initial_guess.h"
 
@@ -45,44 +56,78 @@ std::vector<Determinant> GenCISolver::initial_guess_generate_dets(std::shared_pt
                                                                   size_t num_guess_states) {
     size_t ndets = diag->dim();
     // number of guess to be used must be at most as large as the number of determinants
-    size_t num_guess_dets = std::min(num_guess_states * ndets_per_guess_, ndets);
+    size_t num_guess_dets = num_guess_states * ndets_per_guess_;
 
     // Get the address of the most important determinants
     // this list has size exactly num_guess_dets
     double emax = std::numeric_limits<double>::max();
     size_t added = 0;
+    size_t rejected = 0;
 
     std::vector<std::tuple<double, size_t>> vec_e_I(num_guess_dets, std::make_tuple(emax, 0));
 
     for (size_t I = 0; I < ndets; ++I) {
         double e = diag->get(I);
-        if ((e < emax) or (added < num_guess_states)) {
-            // Find where to inser this determinant
+
+        if (core_guess_) {
+            bool core_add = false;
+            int core_add_count = 0;
+            for (int c=0; c < core_bits_.size(); c++) {
+                int p = core_bits_[c];
+                bool alfa = lists_->determinant(I).get_alfa_bit(p);
+                bool beta = lists_->determinant(I).get_beta_bit(p);
+                core_add = (not (alfa and beta) and not (not alfa and not beta));
+                if (core_add) {
+                    core_add_count++;
+                }
+            }
+            if (not (core_add_count == 1)) {
+                rejected++;
+                continue;
+            }
+        }
+
+        // Find where to inser this determinant
+        if ((e < emax) or (added < num_guess_dets)) { //num_guess_states
             vec_e_I.pop_back();
             auto it = std::find_if(
                 vec_e_I.begin(), vec_e_I.end(),
                 [&e](const std::tuple<double, size_t>& t) { return e < std::get<0>(t); });
             vec_e_I.insert(it, std::make_tuple(e, I));
-            // Do not update the maximum energy threshold if using core determinants as initial guess
-            if (!(core_guess_)){
-                emax = std::get<0>(vec_e_I.back());
-            }
+            emax = std::get<0>(vec_e_I.back());
             added++;
         }
     }
 
+
+    int count = 0;
     std::vector<Determinant> guess_dets;
     for (const auto& [e, I] : vec_e_I) {
-        const auto& det = lists_->determinant(I);
-        // If using core determinants as initial guess include those with
-        // single and double holes in first bit position
-        if (core_guess_){
-            if (!(det.get_alfa_bit(0) and det.get_beta_bit(0))){
-                guess_dets.push_back(det);
-            }
-        } else {
-            guess_dets.push_back(det);
+        if (count >= (num_guess_dets)) {
+            break;
         }
+        const auto& det = lists_->determinant(I);
+        guess_dets.push_back(det);
+        count++;
+    }
+
+    psi::outfile->Printf("\n\n  DL Initial Guess Parameters");
+    psi::outfile->Printf("\n  ---------------------------------");
+    psi::outfile->Printf("\n  number of det: %zu", ndets);
+    psi::outfile->Printf("\n  number of det added: %zu", added);
+    psi::outfile->Printf("\n  number of det rejected: %zu", rejected);
+    psi::outfile->Printf("\n  number of det selected: %zu", guess_dets.size());
+    psi::outfile->Printf("\n  ---------------------------------");
+
+    if (core_print_) {
+        psi::outfile->Printf("\n\n  Determinants Selected as Initial Guess");
+        psi::outfile->Printf("\n  %6s %14.9s %24s", "I", "e", "det");
+        psi::outfile->Printf("\n  ------------------------------------------------------------------");
+        for (const auto& [e, I] : vec_e_I) {
+            const auto& det = lists_->determinant(I);
+            psi::outfile->Printf("\n  %6d %14.9f %24s", I, e, str(det, 18).c_str());
+        }
+        psi::outfile->Printf("\n  ------------------------------------------------------------------");
     }
 
     // Make sure that the spin space is complete
@@ -171,10 +216,91 @@ GenCISolver::form_Hdiag_det(std::shared_ptr<ActiveSpaceIntegrals> fci_ints) {
         I.set_str(lists_->alfa_str(class_Ia, Ia), lists_->beta_str(class_Ib, Ib));
         c = E0 + fci_ints->energy(I);
     });
-    Hdiag.size();
+
+    size_t ndets = Hdiag.size();
 
     auto Hdiag_det = std::make_shared<psi::Vector>(nfci_dets_);
     Hdiag.copy_to(Hdiag_det);
+
+    if (print_ham_od_ and core_guess_) {
+
+        // Form vector that orders determinant's indecis (n) in accending energy (e), 
+        // and segregated by core occupations (c = 2: docc, 1:socc, 0:unocc)
+        std::vector<std::tuple<double, size_t, size_t>> vec_e_n_c;
+        for (size_t n = 0; n < ndets; n++) {
+            double e = Hdiag_det->get(n);
+            size_t c = 0;
+            c += lists_->determinant(n).get_alfa_bit(0) ? 1 : 0;
+            c += lists_->determinant(n).get_beta_bit(0) ? 1 : 0; 
+
+            vec_e_n_c.emplace_back(e, n, c);
+        }
+
+        std::sort(vec_e_n_c.begin(), vec_e_n_c.end(),
+                  [](const auto& lhs, const auto& rhs) {
+                      return std::tie(std::get<2>(lhs), std::get<0>(rhs)) > std::tie(std::get<2>(rhs), std::get<0>(lhs));
+                  });
+
+        // Form vector of newly ordered determinants (det_space) 
+        // and get (nu) indeces for inital and final core det
+        size_t nu = 0;
+        size_t c_nu_i = 0;
+        size_t c_nu_f = 0;
+        std::vector<Determinant> det_space;
+        for (const auto& [e, n, c] : vec_e_n_c) {
+            det_space.emplace_back(lists_->determinant(n));
+            c_nu_i += (c == 2);
+            c_nu_f += (c == 1 || c == 2); 
+            nu++;
+        }
+        c_nu_f--;
+
+        // Print Hamiltonian matrix in the new (nu) ordered determinant sapce and 
+        // find off-diagonal element with largest abs value (Hod_max)
+        auto Hod_max = std::numeric_limits<double>::min();
+        
+        local_timer ham_t1;
+        auto H_mat = make_hamiltonian_matrix(det_space, fci_ints);
+        psi::outfile->Printf("\n Time for building Hamiltonian: %.4fs", ham_t1.get());
+
+        local_timer ham_t2;
+        for (size_t i = 0; i < ndets; i++) {
+            for (size_t j = (i+1); j < ndets; j++) {
+                if (abs(H_mat->get(i,j)) > Hod_max) {
+                    Hod_max = abs(H_mat->get(i,j));
+                }
+            }
+        }
+        psi::outfile->Printf("\n Time for Hod max: %.4fs", ham_t2.get());
+
+        local_timer ham_t3;
+        if (print_ham_) {
+            H_mat->print("matrix.dat");
+        }
+        psi::outfile->Printf("\n Time for printing Hmat: %.4f", ham_t3.get());
+
+        // Get all Hmat coloumn elements at the first core-determinant index (c_nu_i) that are above a user threshold (coup_H_thrs_)
+        std::vector<std::tuple<size_t, size_t, double, int, double, std::string>> vec_Hod_info;
+        for (size_t j = 0; j < ndets; j++) {
+            double MPEcj = pow(H_mat->get(c_nu_i,j), 2) / (H_mat->get(c_nu_i,c_nu_i) - H_mat->get(j,j));
+            if (abs(MPEcj) >= coup_H_thrs_){
+                vec_Hod_info.emplace_back(std::make_tuple(j, std::get<1>(vec_e_n_c[j]), std::get<0>(vec_e_n_c[j]),
+                                          std::get<2>(vec_e_n_c[j]), MPEcj, str(det_space[j], 18)));
+            }
+        }
+
+        // Print off-diagonal info
+        psi::outfile->Printf("\n\n    nu        n            Hjj    occ          MPEcj               |Phi>_j");
+        psi::outfile->Printf("\n  -----------------------------------------------------------------------------");
+        for (const auto& [nu, n, Hjj, occ, MPEcj, phi] : vec_Hod_info) {
+            psi::outfile->Printf("\n  %6d %6d %14.9f %6d %14.9f %24s", nu, n, Hjj, occ, MPEcj, phi.c_str());
+        }
+        psi::outfile->Printf("\n  -----------------------------------------------------------------------------");
+        psi::outfile->Printf("\n  first core nu: %zu", c_nu_i);
+        psi::outfile->Printf("\n  last  core nu: %zu", c_nu_f);
+        psi::outfile->Printf("\n  Hod_max: %.9f", Hod_max);
+        psi::outfile->Printf("\n  -----------------------------------------------------------------------------\n");
+    }
 
     // Determinant I;
     // size_t Iadd = 0;

@@ -115,6 +115,18 @@ class SparseCISolver {
     /// Set the residual 2-norm convergence threshold
     void set_r_convergence(double value);
 
+    /// Enable/disable core determinants as initial guess for Davidson-Liu
+    void set_sci_core_guess(bool value);
+
+    /// Set which orbitals can be used to form core-ex determinant
+    void set_core_bits(std::vector<int> value);
+    
+    /// Print the selected guess determinants used in the Davidson-Liu algorithm
+    void set_core_print(bool value);
+
+    /// Set number of active orbitals
+    void set_act_size(size_t value);
+
     /// The maximum number of iterations for the Davidson algorithm
     void set_maxiter_davidson(int value);
 
@@ -216,6 +228,14 @@ class SparseCISolver {
     double e_convergence_ = 1.0e-12;
     /// The residual 2-norm convergence threshold
     double r_convergence_ = 1.0e-6;
+    /// Use core determinants as initial guess for Davidson-Liu?
+    bool sci_core_guess_;
+    /// Select which orbitals possition in determinant could be singly occupied
+    std::vector<int> core_bits_;
+    /// Print out the guess determinants in string representation
+    bool core_print_;
+    /// Number of MO in active space
+    size_t act_size_ = 18;
     /// The number of guess vectors for each root
     size_t guess_per_root_ = 2;
     /// Number of determinants used to form guess vector per root

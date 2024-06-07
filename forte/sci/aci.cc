@@ -622,6 +622,8 @@ void AdaptiveCI::pre_iter_preparation() {
     }
 
     sparse_solver_->set_options(options_);
+    sparse_solver_->set_sci_core_guess(state_.core_guess());
+    sparse_solver_->set_act_size(mo_space_info_->size("ACTIVE"));
 
     if (quiet_mode_) {
         sparse_solver_->set_print_details(false);

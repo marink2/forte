@@ -70,6 +70,14 @@ void SparseCISolver::set_e_convergence(double value) { e_convergence_ = value; }
 
 void SparseCISolver::set_r_convergence(double value) { r_convergence_ = value; }
 
+void SparseCISolver::set_sci_core_guess(bool value) { sci_core_guess_ = value; }
+
+void SparseCISolver::set_core_bits(std::vector<int> value) { core_bits_ = value; }
+
+void SparseCISolver::set_core_print(bool value) { core_print_ = value; }
+
+void SparseCISolver::set_act_size(size_t value) { act_size_ = value; }
+
 void SparseCISolver::set_maxiter_davidson(int value) { maxiter_davidson_ = value; }
 
 void SparseCISolver::set_guess_per_root(int value) { guess_per_root_ = value; }
@@ -104,6 +112,9 @@ void SparseCISolver::set_options(std::shared_ptr<ForteOptions> options) {
     set_force_diag(options->get_bool("FORCE_DIAG_METHOD"));
     set_e_convergence(options->get_double("E_CONVERGENCE"));
     set_r_convergence(options->get_double("R_CONVERGENCE"));
+
+    set_core_bits(options->get_int_list("CORE_BITS"));
+    set_core_print(options->get_bool("CORE_PRINT"));
 
     set_guess_per_root(options->get_int("DL_GUESS_PER_ROOT"));
     set_ndets_per_guess_state(options->get_int("DL_DETS_PER_GUESS"));
@@ -381,13 +392,55 @@ SparseCISolver::initial_guess_generate_dets(const DeterminantHashVec& space,
     auto as_ints = sigma_vector->as_ints();
     size_t nmo = as_ints->nmo();
 
+    size_t added = 0;
+    size_t rejected = 0;
+
     for (const Determinant& det : detmap) {
+        
+        if (sci_core_guess_) {
+            bool core_add = false;
+            int core_add_count = 0;
+            for (int c=0; c < core_bits_.size(); c++) {
+                int p = core_bits_[c];
+                bool alfa = det.get_alfa_bit(p);
+                bool beta = det.get_beta_bit(p);
+                core_add = (not (alfa and beta) and not (not alfa and not beta));
+                if (core_add) {
+                    core_add_count++;
+                }
+            }
+            if (not (core_add_count == 1)) {
+                rejected++;
+                continue;
+            }
+        }
+
         smallest.emplace_back(as_ints->energy(det), det);
+        added++;
     }
     std::sort(smallest.begin(), smallest.end());
     std::vector<Determinant> guess_dets(num_guess_dets);
     for (size_t i = 0; i < num_guess_dets; i++) {
         guess_dets[i] = smallest[i].second;
+    }
+
+    outfile->Printf("\n\n  DL Initial Guess Parameters");
+    outfile->Printf("\n  ---------------------------------");
+    outfile->Printf("\n  number of det: %zu", ndets);
+    outfile->Printf("\n  number of det added: %zu", added);
+    outfile->Printf("\n  number of det rejected: %zu", rejected);
+    outfile->Printf("\n  number of det selected: %zu", guess_dets.size());
+    outfile->Printf("\n  ---------------------------------");
+
+    if (core_print_) {
+        outfile->Printf("\n\n  Determinants Selected as Initial Guess");
+        outfile->Printf("\n  %6s %14.9s %24s", "I", "e", "det");
+        outfile->Printf("\n  ------------------------------------------------------------------");
+        for (size_t i = 0; i < num_guess_dets; i++) {
+            double det_e = as_ints->energy(guess_dets[i]);
+            outfile->Printf("\n  %6d %14.9f %24s", i, det_e, str(guess_dets[i], act_size_).c_str());
+        }
+        outfile->Printf("\n  ------------------------------------------------------------------");
     }
 
     if (spin_project_) {

@@ -1093,7 +1093,7 @@ class Py3JSRenderer():
         -------
         a tuple of vertices and faces
         """
-        values = skimage.measure.marching_cubes_lewiner(data, level * 0.995)
+        values = skimage.measure.marching_cubes(data, level * 0.995, method='lewiner')
         sk_verts, sk_faces, normals, values = values
         x, y, z = sk_verts.T
 

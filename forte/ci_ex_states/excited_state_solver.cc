@@ -85,6 +85,8 @@ void ExcitedStateSolver::set_options(std::shared_ptr<ForteOptions> options) {
     transition_dipole_ = options->get_bool("TRANSITION_DIPOLES");
     sparse_solver_ = std::make_shared<SparseCISolver>();
     sparse_solver_->set_options(options);
+    bool state_core = state_.core_guess();
+    sparse_solver_->set_sci_core_guess(state_core);
     sci_->set_options(options);
 }
 
